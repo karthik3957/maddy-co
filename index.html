@@ -109,8 +109,6 @@
             const code = args.get('code');
 
             if (code) {
-                // We have a code, so we are coming back from Spotify
-                // Now we need to exchange it for a token
                 try {
                     const token = await getToken(code);
                     accessToken = token;
@@ -119,7 +117,6 @@
                     console.error("Error getting token:", error);
                     alert("There was an error authenticating with Spotify.");
                 }
-                // Clean up the URL
                 const url = new URL(window.location.href);
                 url.search = '';
                 window.history.replaceState({}, document.title, url);
@@ -127,8 +124,6 @@
         };
 
         // --- PKCE HELPER FUNCTIONS ---
-
-        // Generates a random string for the code verifier
         function generateRandomString(length) {
             let text = '';
             const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
@@ -138,14 +133,12 @@
             return text;
         }
 
-        // Hashes the verifier using SHA256
         async function sha256(plain) {
             const encoder = new TextEncoder();
             const data = encoder.encode(plain);
             return window.crypto.subtle.digest('SHA-256', data);
         }
 
-        // Base64-URL encodes the hash to create the code challenge
         function base64urlencode(a) {
             return btoa(String.fromCharCode.apply(null, new Uint8Array(a)))
                 .replace(/\+/g, '-')
@@ -153,11 +146,7 @@
                 .replace(/=+$/, '');
         }
 
-        // --- AUTHENTICATION (Authorization Code Flow with PKCE) ---
-
-        /**
-         * Kicks off the authentication process.
-         */
+        // --- AUTHENTICATION ---
         async function login() {
             const clientId = clientIdInput.value;
             if (!clientId) {
@@ -166,15 +155,11 @@
             }
             localStorage.setItem('spotifyClientId', clientId);
 
-            // 1. Create and store a code verifier
             const codeVerifier = generateRandomString(64);
             localStorage.setItem('code_verifier', codeVerifier);
-
-            // 2. Create a code challenge
             const hashed = await sha256(codeVerifier);
             const codeChallenge = base64urlencode(hashed);
 
-            // 3. Redirect to Spotify's authorization page
             const params = new URLSearchParams({
                 client_id: clientId,
                 response_type: 'code',
@@ -187,20 +172,13 @@
             window.location.href = `${AUTH_ENDPOINT}?${params.toString()}`;
         }
 
-        /**
-         * Exchanges the authorization code for an access token.
-         * @param {string} code - The authorization code from Spotify.
-         * @returns {Promise<string>} - The access token.
-         */
         async function getToken(code) {
             const codeVerifier = localStorage.getItem('code_verifier');
             const clientId = clientIdInput.value;
 
             const response = await fetch(TOKEN_ENDPOINT, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/x-www-form-urlencoded',
-                },
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: new URLSearchParams({
                     client_id: clientId,
                     grant_type: 'authorization_code',
@@ -218,9 +196,6 @@
             return data.access_token;
         }
 
-        /**
-         * Updates the UI to show the logged-in state.
-         */
         async function showLoggedInState() {
             clientIdSection.classList.add('hidden');
             loginSection.classList.add('hidden');
@@ -239,19 +214,44 @@
             }
         }
 
-        // --- SPOTIFY API CALLS (No changes needed here) ---
+        // --- SPOTIFY API CALLS ---
 
+        /**
+         * A robust fetch wrapper for Spotify API calls.
+         * @param {string} endpoint - The API endpoint to call.
+         * @param {string} method - The HTTP method (GET, POST, etc.).
+         * @param {object} [body] - The request body for POST/PUT requests.
+         * @returns {Promise<any>} - The JSON response from the API.
+         */
         async function spotifyFetch(endpoint, method, body) {
             const res = await fetch(`https://api.spotify.com/v1${endpoint}`, {
                 method,
                 headers: { 'Authorization': `Bearer ${accessToken}` },
                 body: body ? JSON.stringify(body) : null
             });
+
+            // If the response is not OK, handle the error gracefully.
             if (!res.ok) {
-                const error = await res.json();
-                throw new Error(`Spotify API Error: ${error.error.message}`);
+                let errorMsg = `Error: ${res.status} ${res.statusText}`;
+                try {
+                    // Try to parse a structured error message from Spotify
+                    const errorData = await res.json();
+                    if (errorData.error && errorData.error.message) {
+                        errorMsg = `Spotify API Error: ${errorData.error.message}`;
+                    }
+                } catch (e) {
+                    // If parsing fails, the response was likely not JSON.
+                    // The initial errorMsg is the best we have.
+                    console.log("Could not parse error response as JSON.");
+                }
+                throw new Error(errorMsg);
             }
-            if (res.status === 204 || res.status === 201) return;
+            
+            // Handle responses with no content
+            if (res.status === 204 || res.status === 201) {
+                return;
+            }
+
             return res.json();
         }
 
@@ -269,7 +269,7 @@
             return spotifyFetch(`/playlists/${playlistId}/tracks`, 'POST', { uris: trackUris });
         }
 
-        // --- MAIN LOGIC (No changes needed here) ---
+        // --- MAIN LOGIC ---
 
         async function generatePlaylist() {
             try {
