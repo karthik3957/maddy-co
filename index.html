@@ -56,7 +56,7 @@
 
         <!-- Logged In State / Results -->
         <div id="loggedin-section" class="hidden text-center space-y-4">
-            <div id="user-profile" class="flex items-center justify-center space-x-4">
+            <div id="user-profile" class="flex items-center justify-between">
                 <!-- User profile info will be injected here -->
             </div>
             <button id="generate-playlist-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transform hover:scale-105 transition-transform duration-200 w-full md:w-auto">
@@ -100,23 +100,33 @@
 
         // --- ON PAGE LOAD ---
         window.onload = async () => {
+            // Persist Client ID
             const storedClientId = localStorage.getItem('spotifyClientId');
             if (storedClientId) {
                 clientIdInput.value = storedClientId;
             }
 
+            // Check for an existing token in session storage (handles page refresh)
+            const storedToken = sessionStorage.getItem('spotify_access_token');
+            if (storedToken) {
+                accessToken = storedToken;
+                await showLoggedInState();
+                return; // Stop execution if we are already logged in
+            }
+
+            // Check for authorization code in URL (handles redirect from Spotify)
             const args = new URLSearchParams(window.location.search);
             const code = args.get('code');
 
             if (code) {
                 try {
-                    const token = await getToken(code);
-                    accessToken = token;
+                    await exchangeCodeForToken(code);
                     await showLoggedInState();
                 } catch (error) {
                     console.error("Error getting token:", error);
                     alert("There was an error authenticating with Spotify.");
                 }
+                // Clean the URL to remove the code
                 const url = new URL(window.location.href);
                 url.search = '';
                 window.history.replaceState({}, document.title, url);
@@ -172,7 +182,7 @@
             window.location.href = `${AUTH_ENDPOINT}?${params.toString()}`;
         }
 
-        async function getToken(code) {
+        async function exchangeCodeForToken(code) {
             const codeVerifier = localStorage.getItem('code_verifier');
             const clientId = clientIdInput.value;
 
@@ -188,12 +198,26 @@
                 }),
             });
 
-            if (!response.ok) {
-                throw new Error('Failed to get token');
-            }
+            if (!response.ok) throw new Error('Failed to exchange code for token');
 
             const data = await response.json();
-            return data.access_token;
+            accessToken = data.access_token;
+            // Store the token in session storage to survive refresh
+            sessionStorage.setItem('spotify_access_token', accessToken);
+        }
+
+        function logout() {
+            accessToken = null;
+            userId = null;
+            sessionStorage.removeItem('spotify_access_token');
+            localStorage.removeItem('code_verifier');
+            
+            // Reset UI
+            clientIdSection.classList.remove('hidden');
+            loginSection.classList.remove('hidden');
+            loggedinSection.classList.add('hidden');
+            statusDiv.innerHTML = '';
+            playlistResultDiv.classList.add('hidden');
         }
 
         async function showLoggedInState() {
@@ -205,53 +229,53 @@
                 const profile = await fetchUserProfile();
                 userId = profile.id;
                 userProfileDiv.innerHTML = `
-                    <img src="${profile.images[0]?.url || 'https://placehold.co/100x100/191414/FFFFFF?text=User'}" alt="Profile Picture" class="w-16 h-16 rounded-full">
-                    <p class="text-lg font-semibold">Welcome, ${profile.display_name}!</p>
+                    <div class="flex items-center space-x-4">
+                        <img src="${profile.images[0]?.url || 'https://placehold.co/100x100/191414/FFFFFF?text=User'}" alt="Profile Picture" class="w-16 h-16 rounded-full">
+                        <p class="text-lg font-semibold">Welcome, ${profile.display_name}!</p>
+                    </div>
+                    <button id="logout-button" class="bg-red-600 hover:bg-red-700 text-white text-sm font-bold py-2 px-4 rounded-full">Logout</button>
                 `;
+                // Add event listener to the newly created logout button
+                document.getElementById('logout-button').addEventListener('click', logout);
             } catch (error) {
                 console.error('Error fetching user profile:', error);
                 statusDiv.innerHTML = `<p class="text-red-400">Error fetching your profile. Your access token might have expired. Please try logging in again.</p>`;
+                // If profile fetch fails, the token is likely bad, so log out.
+                logout();
             }
         }
 
         // --- SPOTIFY API CALLS ---
-
-        /**
-         * A robust fetch wrapper for Spotify API calls.
-         * @param {string} endpoint - The API endpoint to call.
-         * @param {string} method - The HTTP method (GET, POST, etc.).
-         * @param {object} [body] - The request body for POST/PUT requests.
-         * @returns {Promise<any>} - The JSON response from the API.
-         */
         async function spotifyFetch(endpoint, method, body) {
+            if (!accessToken) {
+                throw new Error("Not authenticated. Please log in.");
+            }
             const res = await fetch(`https://api.spotify.com/v1${endpoint}`, {
                 method,
                 headers: { 'Authorization': `Bearer ${accessToken}` },
                 body: body ? JSON.stringify(body) : null
             });
 
-            // If the response is not OK, handle the error gracefully.
             if (!res.ok) {
                 let errorMsg = `Error: ${res.status} ${res.statusText}`;
-                try {
-                    // Try to parse a structured error message from Spotify
-                    const errorData = await res.json();
-                    if (errorData.error && errorData.error.message) {
-                        errorMsg = `Spotify API Error: ${errorData.error.message}`;
+                // If unauthorized, the token has expired. Log the user out.
+                if (res.status === 401) {
+                    logout();
+                    errorMsg = "Your session has expired. Please log in again.";
+                } else {
+                    try {
+                        const errorData = await res.json();
+                        if (errorData.error && errorData.error.message) {
+                            errorMsg = `Spotify API Error: ${errorData.error.message}`;
+                        }
+                    } catch (e) {
+                        console.log("Could not parse error response as JSON.");
                     }
-                } catch (e) {
-                    // If parsing fails, the response was likely not JSON.
-                    // The initial errorMsg is the best we have.
-                    console.log("Could not parse error response as JSON.");
                 }
                 throw new Error(errorMsg);
             }
             
-            // Handle responses with no content
-            if (res.status === 204 || res.status === 201) {
-                return;
-            }
-
+            if (res.status === 204 || res.status === 201) return;
             return res.json();
         }
 
@@ -270,7 +294,6 @@
         }
 
         // --- MAIN LOGIC ---
-
         async function generatePlaylist() {
             try {
                 generatePlaylistButton.disabled = true;
@@ -280,7 +303,7 @@
 
                 addStatus('🔍 Fetching your top 50 tracks...');
                 const topTracks = await fetchTopTracks();
-                if (topTracks.items.length < 5) {
+                if (!topTracks || topTracks.items.length < 5) {
                     addStatus('Not enough top tracks to analyze. Please listen to more music!', 'error');
                     return;
                 }
@@ -322,7 +345,7 @@
                 statusDiv.innerHTML = '';
 
             } catch (error) {
-                console.error('Error generating playlist:', error);
+                console.error('Full error object:', error);
                 addStatus(`An error occurred: ${error.message}. Please try again.`, 'error');
             } finally {
                 generatePlaylistButton.disabled = false;
