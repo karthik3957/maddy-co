@@ -38,19 +38,11 @@
             <label for="clientId" class="block text-sm font-medium text-gray-300 mb-2">Spotify Client ID</label>
             <input type="text" id="clientId" class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg p-3 focus:ring-2 focus:ring-spotify-green focus:outline-none" placeholder="Enter your Spotify Client ID here">
             <div class="p-4 mt-4 bg-gray-700/50 rounded-lg text-sm text-gray-400">
-                <h4 class="font-bold text-white mb-2">How to get your Client ID:</h4>
+                <h4 class="font-bold text-white mb-2">Instructions:</h4>
                 <ol class="list-decimal list-inside space-y-2">
-                    <li>Go to the <a href="https://developer.spotify.com/dashboard/" target="_blank" class="text-spotify-green underline">Spotify Developer Dashboard</a> and log in.</li>
-                    <li>Click "Create App". Give it a name and description.</li>
-                    <li>You'll see your Client ID on the app's dashboard. Copy and paste it above.</li>
-                    <li>Go to "Edit Settings" in your new Spotify app.</li>
-                    <li>In the "Redirect URIs" field, add the exact URL shown below.
-                        <div class="flex items-center gap-2 mt-2 bg-gray-900 p-2 rounded-lg">
-                            <code id="redirectUriDisplay" class="text-white text-xs flex-grow"></code>
-                            <button id="copy-uri-button" class="bg-gray-600 hover:bg-gray-500 text-white text-xs font-bold py-1 px-3 rounded-md">Copy</button>
-                        </div>
-                        After pasting, click "Add", then "Save" on the Spotify page.
-                    </li>
+                    <li>Get your Client ID from the <a href="https://developer.spotify.com/dashboard/" target="_blank" class="text-spotify-green underline">Spotify Developer Dashboard</a>.</li>
+                    <li>Paste it in the input box above.</li>
+                    <li>In your Spotify App Settings, ensure the "Redirect URI" exactly matches your app's URL (e.g., your GitHub Pages link).</li>
                 </ol>
             </div>
         </div>
@@ -88,6 +80,8 @@
         // --- CONFIGURATION ---
         const REDIRECT_URI = window.location.origin + window.location.pathname;
         const SCOPES = 'user-top-read user-read-private user-read-email playlist-modify-public playlist-modify-private';
+        const TOKEN_ENDPOINT = 'https://accounts.spotify.com/api/token';
+        const AUTH_ENDPOINT = 'https://accounts.spotify.com/authorize';
 
         // --- UI ELEMENTS ---
         const clientIdInput = document.getElementById('clientId');
@@ -100,74 +94,128 @@
         const clientIdSection = document.getElementById('client-id-section');
         const loginSection = document.getElementById('login-section');
         const loggedinSection = document.getElementById('loggedin-section');
-        const redirectUriDisplay = document.getElementById('redirectUriDisplay');
-        const copyUriButton = document.getElementById('copy-uri-button');
 
         let accessToken = null;
         let userId = null;
 
         // --- ON PAGE LOAD ---
-        window.onload = () => {
-            redirectUriDisplay.textContent = REDIRECT_URI;
-            handleRedirect();
+        window.onload = async () => {
+            const storedClientId = localStorage.getItem('spotifyClientId');
+            if (storedClientId) {
+                clientIdInput.value = storedClientId;
+            }
+
+            const args = new URLSearchParams(window.location.search);
+            const code = args.get('code');
+
+            if (code) {
+                // We have a code, so we are coming back from Spotify
+                // Now we need to exchange it for a token
+                try {
+                    const token = await getToken(code);
+                    accessToken = token;
+                    await showLoggedInState();
+                } catch (error) {
+                    console.error("Error getting token:", error);
+                    alert("There was an error authenticating with Spotify.");
+                }
+                // Clean up the URL
+                const url = new URL(window.location.href);
+                url.search = '';
+                window.history.replaceState({}, document.title, url);
+            }
         };
 
-        // --- AUTHENTICATION & UTILITIES ---
+        // --- PKCE HELPER FUNCTIONS ---
 
-        /**
-         * Copies the Redirect URI to the clipboard.
-         */
-        function copyToClipboard() {
-            const textToCopy = REDIRECT_URI;
-            // A reliable way to copy text that works in most environments, including iFrames.
-            const textArea = document.createElement("textarea");
-            textArea.value = textToCopy;
-            textArea.style.position = "fixed"; // Avooid scrolling to bottom
-            textArea.style.left = "-9999px";
-            document.body.appendChild(textArea);
-            textArea.focus();
-            textArea.select();
-            try {
-                document.execCommand('copy');
-                copyUriButton.textContent = 'Copied!';
-                setTimeout(() => { copyUriButton.textContent = 'Copy'; }, 2000);
-            } catch (err) {
-                console.error('Fallback: Oops, unable to copy', err);
+        // Generates a random string for the code verifier
+        function generateRandomString(length) {
+            let text = '';
+            const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            for (let i = 0; i < length; i++) {
+                text += possible.charAt(Math.floor(Math.random() * possible.length));
             }
-            document.body.removeChild(textArea);
-        }
-        
-        /**
-         * Handles the redirect from Spotify's authorization page.
-         * Extracts the access token from the URL hash.
-         */
-        function handleRedirect() {
-            const hash = window.location.hash;
-            if (hash) {
-                const params = new URLSearchParams(hash.substring(1));
-                const token = params.get('access_token');
-                if (token) {
-                    accessToken = token;
-                    const storedClientId = localStorage.getItem('spotifyClientId');
-                    if(storedClientId) clientIdInput.value = storedClientId;
-                    
-                    showLoggedInState();
-                }
-            }
+            return text;
         }
 
+        // Hashes the verifier using SHA256
+        async function sha256(plain) {
+            const encoder = new TextEncoder();
+            const data = encoder.encode(plain);
+            return window.crypto.subtle.digest('SHA-256', data);
+        }
+
+        // Base64-URL encodes the hash to create the code challenge
+        function base64urlencode(a) {
+            return btoa(String.fromCharCode.apply(null, new Uint8Array(a)))
+                .replace(/\+/g, '-')
+                .replace(/\//g, '_')
+                .replace(/=+$/, '');
+        }
+
+        // --- AUTHENTICATION (Authorization Code Flow with PKCE) ---
+
         /**
-         * Redirects the user to Spotify's authorization page.
+         * Kicks off the authentication process.
          */
-        function login() {
+        async function login() {
             const clientId = clientIdInput.value;
             if (!clientId) {
                 alert('Please enter your Spotify Client ID first.');
                 return;
             }
             localStorage.setItem('spotifyClientId', clientId);
-            const authUrl = `https://accounts.spotify.com/authorize?client_id=${clientId}&response_type=token&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${encodeURIComponent(SCOPES)}`;
-            window.location.href = authUrl;
+
+            // 1. Create and store a code verifier
+            const codeVerifier = generateRandomString(64);
+            localStorage.setItem('code_verifier', codeVerifier);
+
+            // 2. Create a code challenge
+            const hashed = await sha256(codeVerifier);
+            const codeChallenge = base64urlencode(hashed);
+
+            // 3. Redirect to Spotify's authorization page
+            const params = new URLSearchParams({
+                client_id: clientId,
+                response_type: 'code',
+                redirect_uri: REDIRECT_URI,
+                scope: SCOPES,
+                code_challenge_method: 'S256',
+                code_challenge: codeChallenge,
+            });
+
+            window.location.href = `${AUTH_ENDPOINT}?${params.toString()}`;
+        }
+
+        /**
+         * Exchanges the authorization code for an access token.
+         * @param {string} code - The authorization code from Spotify.
+         * @returns {Promise<string>} - The access token.
+         */
+        async function getToken(code) {
+            const codeVerifier = localStorage.getItem('code_verifier');
+            const clientId = clientIdInput.value;
+
+            const response = await fetch(TOKEN_ENDPOINT, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/x-www-form-urlencoded',
+                },
+                body: new URLSearchParams({
+                    client_id: clientId,
+                    grant_type: 'authorization_code',
+                    code: code,
+                    redirect_uri: REDIRECT_URI,
+                    code_verifier: codeVerifier,
+                }),
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to get token');
+            }
+
+            const data = await response.json();
+            return data.access_token;
         }
 
         /**
@@ -188,24 +236,10 @@
             } catch (error) {
                 console.error('Error fetching user profile:', error);
                 statusDiv.innerHTML = `<p class="text-red-400">Error fetching your profile. Your access token might have expired. Please try logging in again.</p>`;
-                logout();
             }
         }
-        
-        function logout() {
-            accessToken = null;
-            userId = null;
-            localStorage.removeItem('spotifyClientId');
-            window.location.hash = '';
-            clientIdSection.classList.remove('hidden');
-            loginSection.classList.remove('hidden');
-            loggedinSection.classList.add('hidden');
-            playlistResultDiv.classList.add('hidden');
-            statusDiv.innerHTML = '';
-        }
 
-
-        // --- SPOTIFY API CALLS ---
+        // --- SPOTIFY API CALLS (No changes needed here) ---
 
         async function spotifyFetch(endpoint, method, body) {
             const res = await fetch(`https://api.spotify.com/v1${endpoint}`, {
@@ -235,7 +269,7 @@
             return spotifyFetch(`/playlists/${playlistId}/tracks`, 'POST', { uris: trackUris });
         }
 
-        // --- MAIN LOGIC ---
+        // --- MAIN LOGIC (No changes needed here) ---
 
         async function generatePlaylist() {
             try {
@@ -306,7 +340,6 @@
         // --- EVENT LISTENERS ---
         loginButton.addEventListener('click', login);
         generatePlaylistButton.addEventListener('click', generatePlaylist);
-        copyUriButton.addEventListener('click', copyToClipboard);
 
     </script>
 </body>
