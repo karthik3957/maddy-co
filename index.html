@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Spotify AI Playlist Generator</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        .spotify-green {
+            background-color: #1DB954;
+        }
+        .spotify-green:hover {
+            background-color: #1ED760;
+        }
+        .spotify-dark {
+            background-color: #191414;
+        }
+    </style>
+</head>
+<body class="bg-gray-900 text-white flex flex-col items-center justify-center min-h-screen p-4">
+
+    <div id="main-container" class="w-full max-w-2xl mx-auto bg-gray-800 rounded-2xl shadow-2xl p-6 md:p-10 space-y-6">
+        
+        <!-- Header -->
+        <div class="text-center">
+            <h1 class="text-3xl md:text-4xl font-bold text-white mb-2">Spotify AI Playlist Generator</h1>
+            <p class="text-gray-400">Discover new music that perfectly matches your taste.</p>
+        </div>
+
+        <!-- Client ID Input Section -->
+        <div id="client-id-section">
+            <label for="clientId" class="block text-sm font-medium text-gray-300 mb-2">Spotify Client ID</label>
+            <input type="text" id="clientId" class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg p-3 focus:ring-2 focus:ring-spotify-green focus:outline-none" placeholder="Enter your Spotify Client ID here">
+            <div class="p-4 mt-4 bg-gray-700/50 rounded-lg text-sm text-gray-400">
+                <h4 class="font-bold text-white mb-2">How to get your Client ID:</h4>
+                <ol class="list-decimal list-inside space-y-2">
+                    <li>Go to the <a href="https://developer.spotify.com/dashboard/" target="_blank" class="text-spotify-green underline">Spotify Developer Dashboard</a> and log in.</li>
+                    <li>Click "Create App". Give it a name and description.</li>
+                    <li>You'll see your Client ID on the app's dashboard. Copy and paste it above.</li>
+                    <li>Go to "Edit Settings" in your new Spotify app.</li>
+                    <li>In the "Redirect URIs" field, add the exact URL shown below.
+                        <div class="flex items-center gap-2 mt-2 bg-gray-900 p-2 rounded-lg">
+                            <code id="redirectUriDisplay" class="text-white text-xs flex-grow"></code>
+                            <button id="copy-uri-button" class="bg-gray-600 hover:bg-gray-500 text-white text-xs font-bold py-1 px-3 rounded-md">Copy</button>
+                        </div>
+                        After pasting, click "Add", then "Save" on the Spotify page.
+                    </li>
+                </ol>
+            </div>
+        </div>
+
+        <!-- Main Action/Login Button -->
+        <div id="login-section" class="text-center pt-4">
+            <button id="login-button" class="spotify-green text-white font-bold py-3 px-8 rounded-full shadow-lg transform hover:scale-105 transition-transform duration-200 w-full md:w-auto">
+                Login with Spotify & Analyze Music
+            </button>
+        </div>
+
+        <!-- Logged In State / Results -->
+        <div id="loggedin-section" class="hidden text-center space-y-4">
+            <div id="user-profile" class="flex items-center justify-center space-x-4">
+                <!-- User profile info will be injected here -->
+            </div>
+            <button id="generate-playlist-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transform hover:scale-105 transition-transform duration-200 w-full md:w-auto">
+                Create My AI-Powered Playlist
+            </button>
+            <div id="status" class="text-gray-400 pt-4 space-y-2">
+                <!-- Status messages will appear here -->
+            </div>
+            <div id="playlist-result" class="hidden pt-4">
+                <h3 class="text-2xl font-bold text-spotify-green">Success!</h3>
+                <p class="text-gray-300 mt-2">Your new playlist is ready.</p>
+                <a id="playlist-link" href="#" target="_blank" class="mt-4 inline-block spotify-green text-white font-bold py-3 px-8 rounded-full shadow-lg transform hover:scale-105 transition-transform duration-200">
+                    Open Playlist
+                </a>
+            </div>
+        </div>
+
+    </div>
+
+    <script>
+        // --- CONFIGURATION ---
+        const REDIRECT_URI = window.location.origin + window.location.pathname;
+        const SCOPES = 'user-top-read user-read-private user-read-email playlist-modify-public playlist-modify-private';
+
+        // --- UI ELEMENTS ---
+        const clientIdInput = document.getElementById('clientId');
+        const loginButton = document.getElementById('login-button');
+        const generatePlaylistButton = document.getElementById('generate-playlist-button');
+        const statusDiv = document.getElementById('status');
+        const userProfileDiv = document.getElementById('user-profile');
+        const playlistResultDiv = document.getElementById('playlist-result');
+        const playlistLink = document.getElementById('playlist-link');
+        const clientIdSection = document.getElementById('client-id-section');
+        const loginSection = document.getElementById('login-section');
+        const loggedinSection = document.getElementById('loggedin-section');
+        const redirectUriDisplay = document.getElementById('redirectUriDisplay');
+        const copyUriButton = document.getElementById('copy-uri-button');
+
+        let accessToken = null;
+        let userId = null;
+
+        // --- ON PAGE LOAD ---
+        window.onload = () => {
+            redirectUriDisplay.textContent = REDIRECT_URI;
+            handleRedirect();
+        };
+
+        // --- AUTHENTICATION & UTILITIES ---
+
+        /**
+         * Copies the Redirect URI to the clipboard.
+         */
+        function copyToClipboard() {
+            const textToCopy = REDIRECT_URI;
+            // A reliable way to copy text that works in most environments, including iFrames.
+            const textArea = document.createElement("textarea");
+            textArea.value = textToCopy;
+            textArea.style.position = "fixed"; // Avooid scrolling to bottom
+            textArea.style.left = "-9999px";
+            document.body.appendChild(textArea);
+            textArea.focus();
+            textArea.select();
+            try {
+                document.execCommand('copy');
+                copyUriButton.textContent = 'Copied!';
+                setTimeout(() => { copyUriButton.textContent = 'Copy'; }, 2000);
+            } catch (err) {
+                console.error('Fallback: Oops, unable to copy', err);
+            }
+            document.body.removeChild(textArea);
+        }
+        
+        /**
+         * Handles the redirect from Spotify's authorization page.
+         * Extracts the access token from the URL hash.
+         */
+        function handleRedirect() {
+            const hash = window.location.hash;
+            if (hash) {
+                const params = new URLSearchParams(hash.substring(1));
+                const token = params.get('access_token');
+                if (token) {
+                    accessToken = token;
+                    const storedClientId = localStorage.getItem('spotifyClientId');
+                    if(storedClientId) clientIdInput.value = storedClientId;
+                    
+                    showLoggedInState();
+                }
+            }
+        }
+
+        /**
+         * Redirects the user to Spotify's authorization page.
+         */
+        function login() {
+            const clientId = clientIdInput.value;
+            if (!clientId) {
+                alert('Please enter your Spotify Client ID first.');
+                return;
+            }
+            localStorage.setItem('spotifyClientId', clientId);
+            const authUrl = `https://accounts.spotify.com/authorize?client_id=${clientId}&response_type=token&redirect_uri=${encodeURIComponent(REDIRECT_URI)}&scope=${encodeURIComponent(SCOPES)}`;
+            window.location.href = authUrl;
+        }
+
+        /**
+         * Updates the UI to show the logged-in state.
+         */
+        async function showLoggedInState() {
+            clientIdSection.classList.add('hidden');
+            loginSection.classList.add('hidden');
+            loggedinSection.classList.remove('hidden');
+
+            try {
+                const profile = await fetchUserProfile();
+                userId = profile.id;
+                userProfileDiv.innerHTML = `
+                    <img src="${profile.images[0]?.url || 'https://placehold.co/100x100/191414/FFFFFF?text=User'}" alt="Profile Picture" class="w-16 h-16 rounded-full">
+                    <p class="text-lg font-semibold">Welcome, ${profile.display_name}!</p>
+                `;
+            } catch (error) {
+                console.error('Error fetching user profile:', error);
+                statusDiv.innerHTML = `<p class="text-red-400">Error fetching your profile. Your access token might have expired. Please try logging in again.</p>`;
+                logout();
+            }
+        }
+        
+        function logout() {
+            accessToken = null;
+            userId = null;
+            localStorage.removeItem('spotifyClientId');
+            window.location.hash = '';
+            clientIdSection.classList.remove('hidden');
+            loginSection.classList.remove('hidden');
+            loggedinSection.classList.add('hidden');
+            playlistResultDiv.classList.add('hidden');
+            statusDiv.innerHTML = '';
+        }
+
+
+        // --- SPOTIFY API CALLS ---
+
+        async function spotifyFetch(endpoint, method, body) {
+            const res = await fetch(`https://api.spotify.com/v1${endpoint}`, {
+                method,
+                headers: { 'Authorization': `Bearer ${accessToken}` },
+                body: body ? JSON.stringify(body) : null
+            });
+            if (!res.ok) {
+                const error = await res.json();
+                throw new Error(`Spotify API Error: ${error.error.message}`);
+            }
+            if (res.status === 204 || res.status === 201) return;
+            return res.json();
+        }
+
+        function fetchUserProfile() { return spotifyFetch('/me', 'GET'); }
+        function fetchTopTracks() { return spotifyFetch('/me/top/tracks?time_range=long_term&limit=50', 'GET'); }
+        function fetchAudioFeatures(trackIds) { return spotifyFetch(`/audio-features?ids=${trackIds.join(',')}`, 'GET'); }
+        function fetchRecommendations(seedData) {
+            const params = new URLSearchParams(seedData).toString();
+            return spotifyFetch(`/recommendations?${params}`, 'GET');
+        }
+        function createPlaylist(name, description) {
+            return spotifyFetch(`/users/${userId}/playlists`, 'POST', { name, description, public: false });
+        }
+        function addTracksToPlaylist(playlistId, trackUris) {
+            return spotifyFetch(`/playlists/${playlistId}/tracks`, 'POST', { uris: trackUris });
+        }
+
+        // --- MAIN LOGIC ---
+
+        async function generatePlaylist() {
+            try {
+                generatePlaylistButton.disabled = true;
+                generatePlaylistButton.textContent = 'Working...';
+                playlistResultDiv.classList.add('hidden');
+                statusDiv.innerHTML = '';
+
+                addStatus('🔍 Fetching your top 50 tracks...');
+                const topTracks = await fetchTopTracks();
+                if (topTracks.items.length < 5) {
+                    addStatus('Not enough top tracks to analyze. Please listen to more music!', 'error');
+                    return;
+                }
+
+                addStatus('🔬 Analyzing the vibe of your music...');
+                const trackIds = topTracks.items.map(track => track.id);
+                const { audio_features } = await fetchAudioFeatures(trackIds);
+
+                const tasteProfile = {
+                    target_danceability: 0, target_energy: 0, target_valence: 0,
+                    target_acousticness: 0, target_instrumentalness: 0, target_speechiness: 0,
+                };
+                const validFeatures = audio_features.filter(f => f);
+                for (const feature of validFeatures) {
+                    for (const key in tasteProfile) {
+                        tasteProfile[key] += feature[key.replace('target_', '')];
+                    }
+                }
+                for (const key in tasteProfile) {
+                    tasteProfile[key] = (tasteProfile[key] / validFeatures.length).toFixed(3);
+                }
+                addStatus('✅ Your unique taste profile is calculated!');
+
+                addStatus('🎶 Finding new songs just for you...');
+                const seed_tracks = topTracks.items.slice(0, 5).map(track => track.id).join(',');
+                const recommendations = await fetchRecommendations({ ...tasteProfile, seed_tracks, limit: 30 });
+                const recommendedTrackUris = recommendations.tracks.map(track => track.uri);
+
+                addStatus('✨ Creating a new playlist...');
+                const playlistName = `AI Mix: ${new Date().toLocaleDateString()}`;
+                const playlistDescription = 'A playlist generated by your personal AI DJ.';
+                const newPlaylist = await createPlaylist(playlistName, playlistDescription);
+
+                addStatus(`➕ Adding ${recommendedTrackUris.length} songs to "${playlistName}"...`);
+                await addTracksToPlaylist(newPlaylist.id, recommendedTrackUris);
+
+                playlistLink.href = newPlaylist.external_urls.spotify;
+                playlistResultDiv.classList.remove('hidden');
+                statusDiv.innerHTML = '';
+
+            } catch (error) {
+                console.error('Error generating playlist:', error);
+                addStatus(`An error occurred: ${error.message}. Please try again.`, 'error');
+            } finally {
+                generatePlaylistButton.disabled = false;
+                generatePlaylistButton.textContent = 'Create Another AI Playlist';
+            }
+        }
+        
+        function addStatus(message, type = 'info') {
+            const p = document.createElement('p');
+            p.textContent = message;
+            p.className = type === 'error' ? 'text-red-400' : 'text-gray-400';
+            statusDiv.appendChild(p);
+        }
+
+        // --- EVENT LISTENERS ---
+        loginButton.addEventListener('click', login);
+        generatePlaylistButton.addEventListener('click', generatePlaylist);
+        copyUriButton.addEventListener('click', copyToClipboard);
+
+    </script>
+</body>
+</html>
