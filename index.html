@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Spotify AI Playlist Generator</title>
+    <title>Spotify AI Playlist Generator (Genre Edition)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -18,8 +18,14 @@
         .spotify-green:hover {
             background-color: #1ED760;
         }
-        .spotify-dark {
-            background-color: #191414;
+        .genre-tag {
+            cursor: pointer;
+            transition: all 0.2s ease-in-out;
+        }
+        .genre-tag.selected {
+            background-color: #1DB954;
+            color: white;
+            transform: scale(1.05);
         }
     </style>
 </head>
@@ -30,37 +36,38 @@
         <!-- Header -->
         <div class="text-center">
             <h1 class="text-3xl md:text-4xl font-bold text-white mb-2">Spotify AI Playlist Generator</h1>
-            <p class="text-gray-400">Discover new music that perfectly matches your taste.</p>
+            <p class="text-gray-400">Create playlists from your favorite genres. Works for Free & Premium!</p>
         </div>
 
         <!-- Client ID Input Section -->
         <div id="client-id-section">
             <label for="clientId" class="block text-sm font-medium text-gray-300 mb-2">Spotify Client ID</label>
             <input type="text" id="clientId" class="w-full bg-gray-700 border border-gray-600 text-white rounded-lg p-3 focus:ring-2 focus:ring-spotify-green focus:outline-none" placeholder="Enter your Spotify Client ID here">
-            <div class="p-4 mt-4 bg-gray-700/50 rounded-lg text-sm text-gray-400">
-                <h4 class="font-bold text-white mb-2">Instructions:</h4>
-                <ol class="list-decimal list-inside space-y-2">
-                    <li>Get your Client ID from the <a href="https://developer.spotify.com/dashboard/" target="_blank" class="text-spotify-green underline">Spotify Developer Dashboard</a>.</li>
-                    <li>Paste it in the input box above.</li>
-                    <li>In your Spotify App Settings, ensure the "Redirect URI" exactly matches your app's URL (e.g., your GitHub Pages link).</li>
-                </ol>
-            </div>
         </div>
 
         <!-- Main Action/Login Button -->
         <div id="login-section" class="text-center pt-4">
             <button id="login-button" class="spotify-green text-white font-bold py-3 px-8 rounded-full shadow-lg transform hover:scale-105 transition-transform duration-200 w-full md:w-auto">
-                Login with Spotify & Analyze Music
+                Login with Spotify
             </button>
         </div>
 
         <!-- Logged In State / Results -->
-        <div id="loggedin-section" class="hidden text-center space-y-4">
+        <div id="loggedin-section" class="hidden text-center space-y-6">
             <div id="user-profile" class="flex items-center justify-between">
                 <!-- User profile info will be injected here -->
             </div>
-            <button id="generate-playlist-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transform hover:scale-105 transition-transform duration-200 w-full md:w-auto">
-                Create My AI-Powered Playlist
+            
+            <!-- Genre Selection -->
+            <div>
+                <h3 class="text-xl font-bold mb-4">Select up to 5 genres to inspire your playlist:</h3>
+                <div id="genre-container" class="flex flex-wrap justify-center gap-3">
+                    <!-- Genres will be injected here -->
+                </div>
+            </div>
+
+            <button id="generate-playlist-button" class="bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-8 rounded-full shadow-lg transform hover:scale-105 transition-transform duration-200 w-full md:w-auto disabled:bg-gray-500 disabled:cursor-not-allowed" disabled>
+                Create My AI Playlist
             </button>
             <div id="status" class="text-gray-400 pt-4 space-y-2">
                 <!-- Status messages will appear here -->
@@ -79,9 +86,25 @@
     <script>
         // --- CONFIGURATION ---
         const REDIRECT_URI = window.location.origin + window.location.pathname;
-        const SCOPES = 'user-top-read user-read-private user-read-email playlist-modify-public playlist-modify-private';
+        // Reduced scopes as we no longer need to read user top tracks
+        const SCOPES = 'user-read-private user-read-email playlist-modify-public playlist-modify-private';
         const TOKEN_ENDPOINT = 'https://accounts.spotify.com/api/token';
         const AUTH_ENDPOINT = 'https://accounts.spotify.com/authorize';
+        const GENRES = [
+            'acoustic', 'afrobeat', 'alt-rock', 'alternative', 'ambient', 'anime', 'black-metal', 'bluegrass', 'blues', 'bossanova', 
+            'brazil', 'breakbeat', 'british', 'cantopop', 'chicago-house', 'children', 'chill', 'classical', 'club', 'comedy', 
+            'country', 'dance', 'dancehall', 'death-metal', 'deep-house', 'detroit-techno', 'disco', 'disney', 'drum-and-bass', 
+            'dub', 'dubstep', 'edm', 'electro', 'electronic', 'emo', 'folk', 'forro', 'french', 'funk', 'garage', 'german', 
+            'gospel', 'goth', 'grindcore', 'groove', 'grunge', 'guitar', 'happy', 'hard-rock', 'hardcore', 'hardstyle', 
+            'heavy-metal', 'hip-hop', 'holidays', 'honky-tonk', 'house', 'idm', 'indian', 'indie', 'indie-pop', 'industrial', 
+            'iranian', 'j-dance', 'j-idol', 'j-pop', 'j-rock', 'jazz', 'k-pop', 'kids', 'latin', 'latino', 'malay', 'mandopop', 
+            'metal', 'metal-misc', 'metalcore', 'minimal-techno', 'movies', 'mpb', 'new-age', 'new-release', 'opera', 'pagode', 
+            'party', 'philippines-opm', 'piano', 'pop', 'pop-film', 'post-dubstep', 'power-pop', 'progressive-house', 'psych-rock', 
+            'punk', 'punk-rock', 'r-n-b', 'rainy-day', 'reggae', 'reggaeton', 'road-trip', 'rock', 'rock-n-roll', 'rockabilly', 
+            'romance', 'sad', 'salsa', 'samba', 'sertanejo', 'show-tunes', 'singer-songwriter', 'ska', 'sleep', 'songwriter', 
+            'soul', 'soundtracks', 'spanish', 'study', 'summer', 'swedish', 'synth-pop', 'tango', 'techno', 'trance', 'trip-hop', 
+            'turkish', 'work-out', 'world-music'
+        ];
 
         // --- UI ELEMENTS ---
         const clientIdInput = document.getElementById('clientId');
@@ -94,27 +117,23 @@
         const clientIdSection = document.getElementById('client-id-section');
         const loginSection = document.getElementById('login-section');
         const loggedinSection = document.getElementById('loggedin-section');
+        const genreContainer = document.getElementById('genre-container');
 
         let accessToken = null;
         let userId = null;
 
         // --- ON PAGE LOAD ---
         window.onload = async () => {
-            // Persist Client ID
             const storedClientId = localStorage.getItem('spotifyClientId');
-            if (storedClientId) {
-                clientIdInput.value = storedClientId;
-            }
+            if (storedClientId) clientIdInput.value = storedClientId;
 
-            // Check for an existing token in session storage (handles page refresh)
             const storedToken = sessionStorage.getItem('spotify_access_token');
             if (storedToken) {
                 accessToken = storedToken;
                 await showLoggedInState();
-                return; // Stop execution if we are already logged in
+                return;
             }
 
-            // Check for authorization code in URL (handles redirect from Spotify)
             const args = new URLSearchParams(window.location.search);
             const code = args.get('code');
 
@@ -126,37 +145,13 @@
                     console.error("Error getting token:", error);
                     alert("There was an error authenticating with Spotify.");
                 }
-                // Clean the URL to remove the code
                 const url = new URL(window.location.href);
                 url.search = '';
                 window.history.replaceState({}, document.title, url);
             }
         };
 
-        // --- PKCE HELPER FUNCTIONS ---
-        function generateRandomString(length) {
-            let text = '';
-            const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
-            for (let i = 0; i < length; i++) {
-                text += possible.charAt(Math.floor(Math.random() * possible.length));
-            }
-            return text;
-        }
-
-        async function sha256(plain) {
-            const encoder = new TextEncoder();
-            const data = encoder.encode(plain);
-            return window.crypto.subtle.digest('SHA-256', data);
-        }
-
-        function base64urlencode(a) {
-            return btoa(String.fromCharCode.apply(null, new Uint8Array(a)))
-                .replace(/\+/g, '-')
-                .replace(/\//g, '_')
-                .replace(/=+$/, '');
-        }
-
-        // --- AUTHENTICATION ---
+        // --- AUTHENTICATION & UI ---
         async function login() {
             const clientId = clientIdInput.value;
             if (!clientId) {
@@ -171,38 +166,25 @@
             const codeChallenge = base64urlencode(hashed);
 
             const params = new URLSearchParams({
-                client_id: clientId,
-                response_type: 'code',
-                redirect_uri: REDIRECT_URI,
-                scope: SCOPES,
-                code_challenge_method: 'S256',
-                code_challenge: codeChallenge,
+                client_id: clientId, response_type: 'code', redirect_uri: REDIRECT_URI,
+                scope: SCOPES, code_challenge_method: 'S256', code_challenge: codeChallenge,
             });
-
             window.location.href = `${AUTH_ENDPOINT}?${params.toString()}`;
         }
 
         async function exchangeCodeForToken(code) {
             const codeVerifier = localStorage.getItem('code_verifier');
             const clientId = clientIdInput.value;
-
             const response = await fetch(TOKEN_ENDPOINT, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
                 body: new URLSearchParams({
-                    client_id: clientId,
-                    grant_type: 'authorization_code',
-                    code: code,
-                    redirect_uri: REDIRECT_URI,
-                    code_verifier: codeVerifier,
+                    client_id: clientId, grant_type: 'authorization_code', code: code,
+                    redirect_uri: REDIRECT_URI, code_verifier: codeVerifier,
                 }),
             });
-
             if (!response.ok) throw new Error('Failed to exchange code for token');
-
             const data = await response.json();
             accessToken = data.access_token;
-            // Store the token in session storage to survive refresh
             sessionStorage.setItem('spotify_access_token', accessToken);
         }
 
@@ -211,8 +193,6 @@
             userId = null;
             sessionStorage.removeItem('spotify_access_token');
             localStorage.removeItem('code_verifier');
-            
-            // Reset UI
             clientIdSection.classList.remove('hidden');
             loginSection.classList.remove('hidden');
             loggedinSection.classList.add('hidden');
@@ -224,7 +204,7 @@
             clientIdSection.classList.add('hidden');
             loginSection.classList.add('hidden');
             loggedinSection.classList.remove('hidden');
-
+            populateGenres();
             try {
                 const profile = await fetchUserProfile();
                 userId = profile.id;
@@ -235,53 +215,68 @@
                     </div>
                     <button id="logout-button" class="bg-red-600 hover:bg-red-700 text-white text-sm font-bold py-2 px-4 rounded-full">Logout</button>
                 `;
-                // Add event listener to the newly created logout button
                 document.getElementById('logout-button').addEventListener('click', logout);
             } catch (error) {
                 console.error('Error fetching user profile:', error);
-                statusDiv.innerHTML = `<p class="text-red-400">Error fetching your profile. Your access token might have expired. Please try logging in again.</p>`;
-                // If profile fetch fails, the token is likely bad, so log out.
+                statusDiv.innerHTML = `<p class="text-red-400">Error fetching your profile. Your session may have expired.</p>`;
                 logout();
             }
+        }
+        
+        function populateGenres() {
+            genreContainer.innerHTML = '';
+            GENRES.forEach(genre => {
+                const tag = document.createElement('div');
+                tag.textContent = genre;
+                tag.className = 'genre-tag bg-gray-600 hover:bg-gray-500 text-white font-semibold py-2 px-4 rounded-full';
+                tag.dataset.genre = genre;
+                tag.addEventListener('click', toggleGenre);
+                genreContainer.appendChild(tag);
+            });
+        }
+
+        function toggleGenre(event) {
+            const tag = event.target;
+            const selectedCount = document.querySelectorAll('.genre-tag.selected').length;
+            if (tag.classList.contains('selected')) {
+                tag.classList.remove('selected');
+            } else {
+                if (selectedCount < 5) {
+                    tag.classList.add('selected');
+                } else {
+                    alert('You can select a maximum of 5 genres.');
+                }
+            }
+            // Enable/disable button based on selection
+            const newSelectedCount = document.querySelectorAll('.genre-tag.selected').length;
+            generatePlaylistButton.disabled = newSelectedCount === 0;
         }
 
         // --- SPOTIFY API CALLS ---
         async function spotifyFetch(endpoint, method, body) {
-            if (!accessToken) {
-                throw new Error("Not authenticated. Please log in.");
-            }
+            if (!accessToken) throw new Error("Not authenticated. Please log in.");
             const res = await fetch(`https://api.spotify.com/v1${endpoint}`, {
-                method,
-                headers: { 'Authorization': `Bearer ${accessToken}` },
+                method, headers: { 'Authorization': `Bearer ${accessToken}` },
                 body: body ? JSON.stringify(body) : null
             });
-
             if (!res.ok) {
                 let errorMsg = `Error: ${res.status} ${res.statusText}`;
-                // If unauthorized, the token has expired. Log the user out.
                 if (res.status === 401) {
                     logout();
                     errorMsg = "Your session has expired. Please log in again.";
                 } else {
                     try {
                         const errorData = await res.json();
-                        if (errorData.error && errorData.error.message) {
-                            errorMsg = `Spotify API Error: ${errorData.error.message}`;
-                        }
-                    } catch (e) {
-                        console.log("Could not parse error response as JSON.");
-                    }
+                        if (errorData.error && errorData.error.message) errorMsg = `Spotify API Error: ${errorData.error.message}`;
+                    } catch (e) { /* Ignore parsing error */ }
                 }
                 throw new Error(errorMsg);
             }
-            
             if (res.status === 204 || res.status === 201) return;
             return res.json();
         }
 
         function fetchUserProfile() { return spotifyFetch('/me', 'GET'); }
-        function fetchTopTracks() { return spotifyFetch('/me/top/tracks?time_range=long_term&limit=50', 'GET'); }
-        function fetchAudioFeatures(trackIds) { return spotifyFetch(`/audio-features?ids=${trackIds.join(',')}`, 'GET'); }
         function fetchRecommendations(seedData) {
             const params = new URLSearchParams(seedData).toString();
             return spotifyFetch(`/recommendations?${params}`, 'GET');
@@ -295,46 +290,24 @@
 
         // --- MAIN LOGIC ---
         async function generatePlaylist() {
+            const selectedGenres = Array.from(document.querySelectorAll('.genre-tag.selected')).map(tag => tag.dataset.genre);
+            if (selectedGenres.length === 0) {
+                alert('Please select at least one genre.');
+                return;
+            }
             try {
                 generatePlaylistButton.disabled = true;
                 generatePlaylistButton.textContent = 'Working...';
                 playlistResultDiv.classList.add('hidden');
                 statusDiv.innerHTML = '';
-
-                addStatus('🔍 Fetching your top 50 tracks...');
-                const topTracks = await fetchTopTracks();
-                if (!topTracks || topTracks.items.length < 5) {
-                    addStatus('Not enough top tracks to analyze. Please listen to more music!', 'error');
-                    return;
-                }
-
-                addStatus('🔬 Analyzing the vibe of your music...');
-                const trackIds = topTracks.items.map(track => track.id);
-                const { audio_features } = await fetchAudioFeatures(trackIds);
-
-                const tasteProfile = {
-                    target_danceability: 0, target_energy: 0, target_valence: 0,
-                    target_acousticness: 0, target_instrumentalness: 0, target_speechiness: 0,
-                };
-                const validFeatures = audio_features.filter(f => f);
-                for (const feature of validFeatures) {
-                    for (const key in tasteProfile) {
-                        tasteProfile[key] += feature[key.replace('target_', '')];
-                    }
-                }
-                for (const key in tasteProfile) {
-                    tasteProfile[key] = (tasteProfile[key] / validFeatures.length).toFixed(3);
-                }
-                addStatus('✅ Your unique taste profile is calculated!');
-
-                addStatus('🎶 Finding new songs just for you...');
-                const seed_tracks = topTracks.items.slice(0, 5).map(track => track.id).join(',');
-                const recommendations = await fetchRecommendations({ ...tasteProfile, seed_tracks, limit: 30 });
+                
+                addStatus(`🎶 Finding songs for: ${selectedGenres.join(', ')}...`);
+                const recommendations = await fetchRecommendations({ seed_genres: selectedGenres.join(','), limit: 30 });
                 const recommendedTrackUris = recommendations.tracks.map(track => track.uri);
 
                 addStatus('✨ Creating a new playlist...');
-                const playlistName = `AI Mix: ${new Date().toLocaleDateString()}`;
-                const playlistDescription = 'A playlist generated by your personal AI DJ.';
+                const playlistName = `AI Mix: ${selectedGenres.slice(0,2).join(' & ')}`;
+                const playlistDescription = `A playlist generated from the genres: ${selectedGenres.join(', ')}.`;
                 const newPlaylist = await createPlaylist(playlistName, playlistDescription);
 
                 addStatus(`➕ Adding ${recommendedTrackUris.length} songs to "${playlistName}"...`);
@@ -349,7 +322,7 @@
                 addStatus(`An error occurred: ${error.message}. Please try again.`, 'error');
             } finally {
                 generatePlaylistButton.disabled = false;
-                generatePlaylistButton.textContent = 'Create Another AI Playlist';
+                generatePlaylistButton.textContent = 'Create My AI Playlist';
             }
         }
         
@@ -358,6 +331,21 @@
             p.textContent = message;
             p.className = type === 'error' ? 'text-red-400' : 'text-gray-400';
             statusDiv.appendChild(p);
+        }
+
+        // --- PKCE HELPERS ---
+        function generateRandomString(length) {
+            let text = ''; const possible = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+            for (let i = 0; i < length; i++) text += possible.charAt(Math.floor(Math.random() * possible.length));
+            return text;
+        }
+        async function sha256(plain) {
+            const encoder = new TextEncoder(); const data = encoder.encode(plain);
+            return window.crypto.subtle.digest('SHA-256', data);
+        }
+        function base64urlencode(a) {
+            return btoa(String.fromCharCode.apply(null, new Uint8Array(a)))
+                .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
         }
 
         // --- EVENT LISTENERS ---
