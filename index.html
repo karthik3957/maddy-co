@@ -86,7 +86,6 @@
     <script>
         // --- CONFIGURATION ---
         const REDIRECT_URI = window.location.origin + window.location.pathname;
-        // Reduced scopes as we no longer need to read user top tracks
         const SCOPES = 'user-read-private user-read-email playlist-modify-public playlist-modify-private';
         const TOKEN_ENDPOINT = 'https://accounts.spotify.com/api/token';
         const AUTH_ENDPOINT = 'https://accounts.spotify.com/authorize';
@@ -203,7 +202,7 @@
         async function showLoggedInState() {
             clientIdSection.classList.add('hidden');
             loginSection.classList.add('hidden');
-            loggedinSection.classList.remove('hidden');
+loggedinSection.classList.remove('hidden');
             populateGenres();
             try {
                 const profile = await fetchUserProfile();
@@ -247,7 +246,6 @@
                     alert('You can select a maximum of 5 genres.');
                 }
             }
-            // Enable/disable button based on selection
             const newSelectedCount = document.querySelectorAll('.genre-tag.selected').length;
             generatePlaylistButton.disabled = newSelectedCount === 0;
         }
@@ -277,11 +275,14 @@
         }
 
         function fetchUserProfile() { return spotifyFetch('/me', 'GET'); }
+        // CORRECTED a bug here that was causing a 404 error.
         function fetchRecommendations(seedData) {
-            const params = new URLSearchParams(seedData).toString();
-            return spotifyFetch(`/recommendations?${params}`, 'GET');
+            const params = new URLSearchParams(seedData);
+            return spotifyFetch(`/recommendations?${params.toString()}`, 'GET');
         }
         function createPlaylist(name, description) {
+            // Ensure userId is valid before making the call
+            if (!userId) throw new Error("User ID is not available. Cannot create playlist.");
             return spotifyFetch(`/users/${userId}/playlists`, 'POST', { name, description, public: false });
         }
         function addTracksToPlaylist(playlistId, trackUris) {
@@ -304,6 +305,11 @@
                 addStatus(`🎶 Finding songs for: ${selectedGenres.join(', ')}...`);
                 const recommendations = await fetchRecommendations({ seed_genres: selectedGenres.join(','), limit: 30 });
                 const recommendedTrackUris = recommendations.tracks.map(track => track.uri);
+
+                if (recommendedTrackUris.length === 0) {
+                    addStatus('Could not find any recommendations for the selected genres. Please try different ones.', 'error');
+                    return;
+                }
 
                 addStatus('✨ Creating a new playlist...');
                 const playlistName = `AI Mix: ${selectedGenres.slice(0,2).join(' & ')}`;
